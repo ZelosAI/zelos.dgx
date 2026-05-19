@@ -1,8 +1,15 @@
 ---
-- import_playbook: snapshot.yml
-- import_playbook: nvidia_verify.yml
-- import_playbook: base.yml
-- import_playbook: remote_desktop.yml
-- import_playbook: ai_serving.yml
-- import_playbook: monitoring.yml
-- import_playbook: k3s.yml
+- name: Site - snapshot
+  import_playbook: snapshot.yml
+- name: Site - nvidia_verify
+  import_playbook: nvidia_verify.yml
+- name: Site - base
+  import_playbook: base.yml
+- name: Site - remote_desktop
+  import_playbook: remote_desktop.yml
+- name: Site - ai_serving
+  import_playbook: ai_serving.yml
+- name: Site - monitoring
+  import_playbook: monitoring.yml
+- name: Site - k3s
+  import_playbook: k3s.yml

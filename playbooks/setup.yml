@@ -26,7 +26,7 @@
 - name: Setup - first full borg backup (off-host disaster recovery baseline)
   ansible.builtin.import_playbook: backup.yml
   vars:
-    borg_run_now: true
+    backup_run_now: true
 
 - name: Setup - clean-baseline timeshift snapshot (keep forever)
   ansible.builtin.import_playbook: snapshot.yml

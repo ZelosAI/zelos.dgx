@@ -8,8 +8,8 @@ ExecStartPre=-/usr/bin/docker stop dcgm-exporter
 ExecStartPre=-/usr/bin/docker rm dcgm-exporter
 ExecStart=/usr/bin/docker run --name dcgm-exporter \
     --gpus all --cap-add SYS_ADMIN --rm \
-    -p {{ monitoring_bind }}:{{ dcgm_exporter_port }}:9400 \
-    {{ dcgm_exporter_image }}
+    -p {{ monitoring_bind }}:{{ monitoring_dcgm_exporter_port }}:9400 \
+    {{ monitoring_dcgm_exporter_image }}
 ExecStop=/usr/bin/docker stop dcgm-exporter
 Restart=on-failure
 RestartSec=10

@@ -1,30 +1,27 @@
 ---
-- name: Assert borg_archive is set
+- name: Assert backup_archive is set
   ansible.builtin.assert:
     that:
-      - borg_archive | length > 0
+      - backup_archive | length > 0
     fail_msg: >-
-      borg_archive must name an archive in the repo (see `borg list`).
-      Pass it via -e borg_archive=<name>.
+      backup_archive must name an archive in the repo (see `borg list`).
+      Pass it via -e backup_archive=<name>.
 
 - name: Compute effective repo path (restore)
   ansible.builtin.set_fact:
-    borg_repo_effective: >-
-      {%- if borg_repo_mode in ['nfs', 'smb'] -%}
-      {{ borg_mount_point }}/{{ inventory_hostname }}
-      {%- elif borg_repo_mode == 'local' and borg_repo | length == 0 -%}
-      /var/backup/borg/{{ inventory_hostname }}
-      {%- else -%}
-      {{ borg_repo }}
-      {%- endif -%}
+    backup_repo_effective: >-
+      {%- if backup_repo_mode in ['nfs', 'smb'] -%}
+      {{ backup_mount_point }}/{{ inventory_hostname }}{%- elif backup_repo_mode == 'local' and backup_repo | length == 0 -%}
+      /var/backup/borg/{{ inventory_hostname }}{%- else -%}
+      {{ backup_repo }}{%- endif -%}
 
 - name: Ensure the share is mounted (nfs/smb restore)
   ansible.builtin.import_tasks: mount.yml
-  when: borg_repo_mode in ['nfs', 'smb']
+  when: backup_repo_mode in ['nfs', 'smb']
 
 - name: Create restore target directory
   ansible.builtin.file:
-    path: "{{ borg_restore_target }}/{{ borg_archive }}"
+    path: "{{ backup_restore_target }}/{{ backup_archive }}"
     state: directory
     owner: root
     group: root
@@ -35,17 +32,17 @@
     argv:
       - borg
       - extract
-      - "{{ borg_repo_effective }}::{{ borg_archive }}"
-    chdir: "{{ borg_restore_target }}/{{ borg_archive }}"
+      - "{{ backup_repo_effective }}::{{ backup_archive }}"
+    chdir: "{{ backup_restore_target }}/{{ backup_archive }}"
   environment:
     BORG_PASSPHRASE: "{{ vault_borg_passphrase | default('') }}"
-  register: borg_extract
+  register: backup_extract
   changed_when: true
   no_log: true
 
 - name: Restore complete
   ansible.builtin.debug:
     msg: >-
-      Archive {{ borg_archive }} extracted to
-      {{ borg_restore_target }}/{{ borg_archive }}.
+      Archive {{ backup_archive }} extracted to
+      {{ backup_restore_target }}/{{ backup_archive }}.
       Files are NOT installed in place — inspect, then copy in by hand.

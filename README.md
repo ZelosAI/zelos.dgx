@@ -91,7 +91,7 @@ make remote-desktop              # virtual_display + sunshine
 make ai                          # docker + vllm
 make tailscale
 make monitoring
-make k3s                         # after flipping k3s_install: true
+make k3s                         # after flipping k3s_gpu_install: true
 ```
 
 ## Safety nets
@@ -120,7 +120,7 @@ All knobs live in `inventory/group_vars/all/main.yml`. The most likely tweaks:
 | `vllm_gpu_memory_utilization` | `0.90` | Lower if you want headroom. |
 | `virtual_display_width/height/refresh` | `3840/2160/60` | Match what your Moonlight client can decode. |
 | `sunshine_version` | `0.23.1` | Pinned; bump deliberately from upstream releases. |
-| `k3s_install` | `false` | Opt-in. Set `k3s_gpu_operator_install: true` for device plugin. |
+| `k3s_gpu_install` | `false` | Opt-in. Set `k3s_gpu_operator_install: true` for device plugin. |
 | `monitoring_bind` | `127.0.0.1` | Flip to the Tailscale IP if scraping remotely. |
 | `tailscale_ssh` | `true` | When confirmed working, disable port-22 exposure. |
 
@@ -129,9 +129,9 @@ Vault secrets (`inventory/group_vars/all/vault.yml`, gitignored):
 - `vault_tailscale_auth_key` — https://login.tailscale.com/admin/settings/keys
 - `vault_hf_token` — for gated HF models
 - `vault_vllm_api_key` — long random string; gates `/v1/*`
-- `vault_k3s_token` — only if `k3s_install: true`
-- `vault_borg_passphrase` — required unless `borg_encryption: none`. **Back this up off-host. Lose it = lose the backups.**
-- `vault_borg_smb_password` — only if `borg_repo_mode: smb`
+- `vault_k3s_token` — only if `k3s_gpu_install: true`
+- `vault_borg_passphrase` — required unless `backup_encryption: none`. **Back this up off-host. Lose it = lose the backups.**
+- `vault_borg_smb_password` — only if `backup_repo_mode: smb`
 
 ## After it's up
 

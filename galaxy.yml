@@ -12,6 +12,8 @@ description: >
 license:
   - Apache-2.0
 tags:
+  - infrastructure
+  - linux
   - nvidia
   - dgx
   - gpu
@@ -24,8 +26,8 @@ dependencies:
   community.general: ">=8.0.0"
   ansible.posix: ">=1.5.0"
   community.docker: ">=3.10.0"
-repository: https://github.com/kmechlin/ansible-dgx-collection
-issues: https://github.com/kmechlin/ansible-dgx-collection/issues
+repository: https://github.com/kmechlin/zelos.dgx
+issues: https://github.com/kmechlin/zelos.dgx/issues
 build_ignore:
   - .github
   - .yamllint.yml
