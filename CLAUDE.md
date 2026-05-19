@@ -20,13 +20,19 @@
 ansible-dgx-collection/
 ├── ansible.cfg
 ├── galaxy.yml                 # namespace=kmechlin, name=dgx, version=0.1.0
-├── Makefile                   # make site / ai / remote-desktop / k3s / monitoring / ...
+├── Makefile                   # make bootstrap / setup / site / snapshot / rollback / backup / ...
 ├── meta/runtime.yml           # requires_ansible >=2.15
 ├── requirements.yml           # community.general, ansible.posix, community.docker
 ├── .yamllint.yml
 ├── .github/workflows/lint.yml # yamllint + ansible-lint + syntax-check
 ├── playbooks/
-│   ├── site.yml               # full provision (imports the rest)
+│   ├── site.yml               # imports snapshot.yml + the rest
+│   ├── bootstrap.yml          # create the `ansible` user (run once, --ask-pass)
+│   ├── setup.yml              # baseline: full borg backup + clean-baseline snapshot
+│   ├── snapshot.yml           # timeshift snapshot (pre-site or ad-hoc)
+│   ├── rollback.yml           # timeshift restore (reboots host)
+│   ├── backup.yml             # borg config + systemd timer
+│   ├── backup_restore.yml     # borg extract → /var/restore/<archive>
 │   ├── nvidia_verify.yml
 │   ├── base.yml               # docker + tailscale
 │   ├── remote_desktop.yml     # virtual_display + sunshine
@@ -35,14 +41,20 @@ ansible-dgx-collection/
 │   ├── monitoring.yml
 │   └── tailscale.yml
 ├── inventory/
-│   ├── hosts.yml              # example single-host inventory
+│   ├── hosts.yml              # main inventory (ansible_user=ansible after bootstrap)
+│   ├── bootstrap.example.yml  # one-time bootstrap inventory (ansible_user=ubuntu)
 │   ├── vault.example.yml      # template -> copy to group_vars/all/vault.yml
 │   └── group_vars/
-│       └── all/main.yml       # all knobs
+│       └── all/main.yml       # all knobs (incl. snapshot_*, borg_*)
 ├── docs/
 │   ├── openai-client.example.py
 │   └── prometheus-scrape.example.yml
 └── roles/
+    ├── bootstrap/             # creates the `ansible` user + key + NOPASSWD sudo
+    ├── snapshot/              # timeshift snapshot (create + rollback tasks)
+    ├── backup/                # borg daily backup; ssh/local/nfs/smb repo modes;
+    │                          # /etc/borg/{passphrase,excludes}, /usr/local/sbin/borg-backup.sh,
+    │                          # /etc/systemd/system/borg-backup.{service,timer}
     ├── nvidia_verify/         # nvidia-smi + driver version assert
     ├── docker/                # docker-ce + compose plugin + nvidia-container-toolkit;
     │                          # writes /etc/docker/daemon.json with nvidia default runtime;
@@ -60,6 +72,26 @@ ansible-dgx-collection/
     ├── k3s_gpu/               # opt-in k3s install + optional NVIDIA k8s device plugin
     └── monitoring/            # node_exporter binary + systemd; dcgm-exporter container
 ```
+
+## Operator flow
+
+```
+make bootstrap   # one-time, interactive (admin user + password)
+make setup       # one-time: full borg backup + clean-baseline snapshot
+make site        # repeatable; pre-flight snapshot taken each run
+```
+
+Recovery hierarchy:
+
+- bad `make site` run → `make rollback` (latest pre-flight snapshot)
+- cumulative drift → `make rollback ASK='-e snapshot_target=clean-baseline'`
+- disk loss → reinstall OS, `make bootstrap`, restore from borg
+
+The two safety nets are deliberately separate. **timeshift** is local
+snapshot for in-place rollback; **borg** is off-host
+deduplicated/encrypted incremental backup to ssh/local/nfs/smb repo
+with a systemd `daily` timer. Lose the disk → borg restore. Break a
+config → timeshift rollback.
 
 ## What has been verified
 
@@ -94,6 +126,10 @@ All knobs in `inventory/group_vars/all/main.yml`:
 - `k3s_install` (opt-in), `k3s_gpu_operator_install`
 - `monitoring_bind` (loopback by default; flip to Tailscale IP for remote scraping)
 - `tailscale_ssh`
+- `snapshot_enabled`, `snapshot_excludes`, `snapshot_retention`
+- `borg_repo_mode` (ssh|local|nfs|smb), `borg_repo`,
+  `borg_nfs_share` / `borg_smb_share`, `borg_schedule`,
+  `borg_encryption`, `borg_compression`
 
 Vault secrets in `inventory/group_vars/all/vault.yml` (gitignored, encrypt
 with `ansible-vault`):
@@ -102,6 +138,8 @@ with `ansible-vault`):
 - `vault_hf_token` (for gated HF models like Llama)
 - `vault_vllm_api_key`
 - `vault_k3s_token` (only if `k3s_install: true`)
+- `vault_borg_passphrase` (back this up off-host — lose it = lose the backups)
+- `vault_borg_smb_password` (only if `borg_repo_mode: smb`)
 
 ## How to run it
 
@@ -112,19 +150,28 @@ python3 -m venv venv && source venv/bin/activate
 pip install ansible ansible-lint yamllint
 make deps                              # installs community.general/posix/docker
 
-vim inventory/hosts.yml                # set ansible_host / ansible_user
+# --- One-time bootstrap (interactive) ---
+cp inventory/bootstrap.example.yml inventory/bootstrap.yml
+vim inventory/bootstrap.yml            # admin user, host, key path
+make bootstrap                         # prompts for admin SSH + sudo password
+
+# --- Vault + baseline (one-time) ---
+vim inventory/hosts.yml                # confirm ansible_host
 cp inventory/vault.example.yml inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
+make ping                              # SSH + become smoke test as `ansible`
+make setup                             # baseline snapshot + first full borg backup
 
-make ping                              # SSH + become smoke test
-make site                              # full provision
+# --- Provision (repeatable) ---
+make site                              # snapshots pre-flight, then full provision
 ```
 
 ## Git / Workflow
 
-- Develop on `claude/ansible-remote-ai-setup-aLg4U`.
+- Develop on the session branch printed in the harness system prompt
+  (the one starting with `claude/ansible-remote-ai-setup-`).
 - Commit with clear, descriptive messages.
-- Push with `git push -u origin claude/ansible-remote-ai-setup-aLg4U`.
+- Push with `git push -u origin <session-branch>`.
 - Do **not** create a PR unless explicitly asked.
 
 ## Good next-iteration prompts
@@ -139,7 +186,7 @@ make site                              # full provision
 - "Write molecule tests for the `docker` and `nvidia_verify` roles."
 - "Generalize the inventory to a `dgx` group; convert single-host
   references in templates."
-- "Add a borg/restic role to back up `/opt/vllm/hf-cache`."
+- "Add a `restic` role as an alternative `backup_backend` to borg." 
 
 ## Notes / Blockers
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=borgbackup daily backup timer (kmechlin.dgx)
+
+[Timer]
+OnCalendar={{ borg_schedule }}
+RandomizedDelaySec={{ borg_schedule_random_delay }}
+Persistent=true
+Unit=borg-backup.service
+
+[Install]
+WantedBy=timers.target

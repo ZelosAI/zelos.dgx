@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart borg-backup.timer
+  ansible.builtin.systemd:
+    name: borg-backup.timer
+    state: restarted

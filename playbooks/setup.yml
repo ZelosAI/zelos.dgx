@@ -1,0 +1,35 @@
+---
+- name: Setup - assert the system is a clean post-bootstrap baseline
+  hosts: dgx
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Check for signs the host has already been provisioned
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: setup_provisioned_check
+      loop:
+        - /opt/vllm
+        - /etc/nvidia-container-runtime
+        - /etc/sunshine
+
+    - name: Refuse to capture a baseline on a provisioned host
+      ansible.builtin.assert:
+        that:
+          - setup_provisioned_check.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          One of /opt/vllm, /etc/nvidia-container-runtime, /etc/sunshine
+          already exists — this host is no longer a clean baseline.
+          Pass -e setup_force=true if you really mean to capture this state.
+      when: not (setup_force | default(false) | bool)
+
+- name: Setup - first full borg backup (off-host disaster recovery baseline)
+  ansible.builtin.import_playbook: backup.yml
+  vars:
+    borg_run_now: true
+
+- name: Setup - clean-baseline timeshift snapshot (keep forever)
+  ansible.builtin.import_playbook: snapshot.yml
+  vars:
+    snapshot_comment: "clean-baseline"
+    snapshot_tag: "O"

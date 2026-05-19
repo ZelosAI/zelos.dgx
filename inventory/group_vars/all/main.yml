@@ -2,11 +2,17 @@
 # Core tuning knobs for the kmechlin.dgx collection.
 # Vault secrets live alongside this file in vault.yml (gitignored).
 
+# --- Bootstrap (one-time, before this file is even relevant) ---
+# Set in inventory/bootstrap.yml when running `make bootstrap`.
+bootstrap_user: ansible
+# bootstrap_authorized_keys_file: "~/.ssh/id_ed25519.pub"   # control node
+
 # --- NVIDIA / driver ---
 nvidia_verify_min_driver: "550"
 
 # --- Docker / NVIDIA container toolkit ---
 docker_users:
+  - ansible
   - ubuntu
 docker_default_runtime: nvidia
 docker_smoke_image: nvidia/cuda:12.4.1-base-ubuntu22.04
@@ -23,8 +29,46 @@ virtual_display_refresh: 60
 virtual_display_busid: ""   # autodetect if empty; e.g. "PCI:1:0:0"
 
 # --- Sunshine ---
+# The X session lives under this user. Keep this aligned with whatever
+# account you actually log into for desktop use.
 sunshine_user: ubuntu
 sunshine_version: "0.23.1"
+
+# --- Snapshot (timeshift, pre-site rollback) ---
+snapshot_enabled: true
+snapshot_comment: "ansible-pre-site"
+snapshot_tag: "D"
+snapshot_excludes:
+  - "/opt/vllm/hf-cache/**"
+  - "/var/lib/docker/**"
+  - "/var/lib/rancher/k3s/agent/containerd/**"
+snapshot_retention:
+  daily: 5
+  weekly: 2
+  monthly: 1
+  boot: 5
+
+# --- Backup (borg, daily off-host) ---
+# Pick one repo mode. ssh is the simplest off-host option.
+borg_repo_mode: ssh                # ssh | local | nfs | smb
+borg_repo: ""                      # ssh: "user@host:/path/<hostname>"
+borg_mount_point: /mnt/borg-repo
+
+# NFS-mode inputs
+borg_nfs_share: ""                 # "nas.tail-net.ts.net:/export/borg"
+borg_nfs_options: "rw,hard,vers=4"
+
+# SMB-mode inputs (password is vaulted as vault_borg_smb_password)
+borg_smb_share: ""                 # "//nas.tail-net.ts.net/borg"
+borg_smb_username: ""
+borg_smb_options: "vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"
+
+borg_encryption: repokey-blake2    # none | repokey-blake2 | keyfile-blake2
+borg_compression: "auto,zstd"
+borg_schedule: "daily"
+borg_schedule_random_delay: "30m"
+borg_run_now: false                # flip via -e to trigger an immediate backup
+borg_restore_target: "/var/restore"
 
 # --- vLLM ---
 vllm_dir: /opt/vllm

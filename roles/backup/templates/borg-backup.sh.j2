@@ -1,0 +1,46 @@
+#!/bin/bash
+# Managed by Ansible (kmechlin.dgx.backup). Edits will be overwritten.
+set -euo pipefail
+
+REPO="{{ borg_repo_effective }}"
+PASSPHRASE_FILE="{{ borg_passphrase_file }}"
+EXCLUDES_FILE="{{ borg_excludes_file }}"
+COMPRESSION="{{ borg_compression }}"
+ARCHIVE="$(hostname)-$(date +%Y-%m-%dT%H-%M-%S)"
+
+{% if borg_encryption != 'none' %}
+if [[ -r "$PASSPHRASE_FILE" ]]; then
+  export BORG_PASSPHRASE
+  BORG_PASSPHRASE="$(cat "$PASSPHRASE_FILE")"
+else
+  echo "borg-backup: passphrase file $PASSPHRASE_FILE is unreadable" >&2
+  exit 2
+fi
+{% endif %}
+
+export BORG_REPO="$REPO"
+export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
+
+echo "borg-backup: creating archive $ARCHIVE in $REPO"
+borg create \
+  --stats \
+  --compression "$COMPRESSION" \
+  --exclude-from "$EXCLUDES_FILE" \
+  --one-file-system \
+  "::$ARCHIVE" \
+{% for p in borg_paths %}
+  "{{ p }}"{% if not loop.last %} \{% endif %}
+
+{% endfor %}
+
+echo "borg-backup: pruning"
+borg prune \
+  --list \
+  --keep-daily   {{ borg_prune.keep_daily }} \
+  --keep-weekly  {{ borg_prune.keep_weekly }} \
+  --keep-monthly {{ borg_prune.keep_monthly }}
+
+echo "borg-backup: compacting"
+borg compact
+
+echo "borg-backup: done"

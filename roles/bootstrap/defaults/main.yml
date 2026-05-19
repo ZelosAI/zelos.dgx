@@ -1,0 +1,21 @@
+---
+# User to create on the target. After this role runs, every other playbook
+# in the collection connects as this user (key + NOPASSWD sudo).
+bootstrap_user: ansible
+bootstrap_user_groups:
+  - sudo
+bootstrap_user_shell: /bin/bash
+bootstrap_user_home: "/home/{{ bootstrap_user }}"
+
+# Absolute path on the CONTROL node to a single SSH public key file.
+# Required. Example: "~/.ssh/id_ed25519.pub"
+bootstrap_authorized_keys_file: ""
+
+# Drop /etc/sudoers.d/90-ansible-bootstrap with NOPASSWD: ALL for bootstrap_user.
+bootstrap_sudoers_nopasswd: true
+
+# Packages the rest of the collection assumes are present.
+bootstrap_base_packages:
+  - python3
+  - python3-apt
+  - sudo

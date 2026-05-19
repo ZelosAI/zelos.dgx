@@ -1,0 +1,10 @@
+---
+- name: Restore a borg archive into a scratch directory
+  hosts: dgx
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Include restore tasks
+      ansible.builtin.include_role:
+        name: kmechlin.dgx.backup
+        tasks_from: restore.yml

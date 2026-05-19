@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  author: kmechlin
+  description: Create the ansible user (key + NOPASSWD sudo) for unattended runs
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - bootstrap
+    - ssh
+    - sudo
+dependencies: []

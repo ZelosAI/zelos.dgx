@@ -1,0 +1,44 @@
+---
+- name: Snapshot - check enabled
+  ansible.builtin.meta: end_play
+  when: not (snapshot_enabled | bool)
+
+- name: Install timeshift
+  ansible.builtin.apt:
+    name: timeshift
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure /etc/timeshift exists
+  ansible.builtin.file:
+    path: /etc/timeshift
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Write timeshift config
+  ansible.builtin.template:
+    src: timeshift.json.j2
+    dest: /etc/timeshift/timeshift.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create timeshift snapshot
+  ansible.builtin.command:
+    argv:
+      - timeshift
+      - --create
+      - --tags
+      - "{{ snapshot_tag }}"
+      - --comments
+      - "{{ snapshot_comment }}"
+      - --scripted
+  register: snapshot_create
+  changed_when: snapshot_create.rc == 0
+
+- name: Show timeshift snapshot result
+  ansible.builtin.debug:
+    msg: "{{ snapshot_create.stdout_lines | default([]) }}"
