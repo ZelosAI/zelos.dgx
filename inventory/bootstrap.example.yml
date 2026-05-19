@@ -1,0 +1,25 @@
+---
+# One-time bootstrap inventory. Run once with:
+#
+#   ansible-playbook -i inventory/bootstrap.yml playbooks/bootstrap.yml \
+#       --ask-pass --ask-become-pass
+#
+# Copy this file to inventory/bootstrap.yml and fill it in. The copy is
+# gitignored so it's safe to leave credentials in place locally.
+#
+# After bootstrap succeeds, the host is reachable as `ansible` via key +
+# NOPASSWD sudo, and the main inventory/hosts.yml takes over.
+
+all:
+  children:
+    dgx:
+      hosts:
+        dgx01:
+          ansible_host: 10.0.0.10
+          # DGX OS default admin user (or whatever your install uses).
+          ansible_user: ubuntu
+          ansible_become: true
+  vars:
+    # Absolute path on the CONTROL node to the SSH public key that
+    # should be authorised for the new `ansible` user.
+    bootstrap_authorized_keys_file: "~/.ssh/id_ed25519.pub"

@@ -1,0 +1,59 @@
+---
+- name: Verify timeshift is installed
+  ansible.builtin.command: which timeshift
+  register: snapshot_which_timeshift
+  changed_when: false
+  failed_when: snapshot_which_timeshift.rc != 0
+
+- name: List available timeshift snapshots
+  ansible.builtin.command: timeshift --list
+  register: snapshot_list
+  changed_when: false
+
+- name: Show available snapshots
+  ansible.builtin.debug:
+    msg: "{{ snapshot_list.stdout_lines }}"
+
+- name: Resolve snapshot_target=latest to the newest snapshot name
+  when: snapshot_target == "latest"
+  block:
+    - name: Parse latest snapshot name from `timeshift --list`
+      ansible.builtin.set_fact:
+        snapshot_resolved_name: >-
+          {{ (snapshot_list.stdout_lines
+              | select('match', '^\\s*\\d+\\s+>')
+              | list
+              | last
+              | regex_search('\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}'))
+              | default('', true) }}
+
+    - name: Assert a snapshot was found
+      ansible.builtin.assert:
+        that:
+          - snapshot_resolved_name | length > 0
+        fail_msg: "No timeshift snapshots present — nothing to roll back to."
+
+- name: Use explicit snapshot name
+  ansible.builtin.set_fact:
+    snapshot_resolved_name: "{{ snapshot_target }}"
+  when: snapshot_target != "latest"
+
+- name: Warn before rollback (host will reboot)
+  ansible.builtin.debug:
+    msg: >-
+      Restoring timeshift snapshot {{ snapshot_resolved_name }}.
+      The host will reboot mid-restore; SSH will drop. Reconnect after ~2 minutes.
+
+- name: Restore timeshift snapshot (reboots host)
+  ansible.builtin.command:
+    argv:
+      - timeshift
+      - --restore
+      - --snapshot
+      - "{{ snapshot_resolved_name }}"
+      - --skip-grub
+      - --yes
+      - --scripted
+  async: 60
+  poll: 0
+  changed_when: true

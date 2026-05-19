@@ -21,6 +21,23 @@ DCGM exporter).
 - Control node: Ansible >= 2.15, Python 3.10+.
 - SSH access as a sudo-capable user.
 
+## Operator flow
+
+```
+make bootstrap   # one-time, interactive (admin user + password)
+make setup       # one-time: clean-baseline timeshift snapshot + full borg backup
+make site        # repeatable; pre-flight snapshot taken before each run
+```
+
+After `make setup`, a daily borg backup is already running via systemd
+timer. Recovery hierarchy:
+
+| Failure | Recovery |
+|---|---|
+| `make site` broke something | `make rollback` (latest pre-flight snapshot) |
+| Cumulative drift over many runs | `make rollback ASK='-e snapshot_target=clean-baseline'` then re-run `make site` |
+| Disk loss / system wipe | Reinstall OS, `make bootstrap`, then restore latest borg archive |
+
 ## Quickstart
 
 ```bash
@@ -31,28 +48,64 @@ python3 -m venv venv && source venv/bin/activate
 pip install ansible ansible-lint yamllint
 
 make deps                   # ansible-galaxy collection install
+```
 
-# Edit inventory/hosts.yml so ansible_host / ansible_user point at the DGX.
-vim inventory/hosts.yml
+### 1. Bootstrap (one-time, interactive)
 
-# Create the encrypted vault file:
+```bash
+cp inventory/bootstrap.example.yml inventory/bootstrap.yml
+vim inventory/bootstrap.yml      # set ansible_host, ansible_user (DGX admin), key path
+make bootstrap                   # prompts for SSH + sudo password of the admin user
+```
+
+This creates the `ansible` user on the target with your control-node SSH
+key authorised and NOPASSWD sudo. The original admin user is left alone
+(recovery path if the key is lost).
+
+### 2. Vault + setup (one-time)
+
+```bash
+vim inventory/hosts.yml          # confirm ansible_host
 cp inventory/vault.example.yml inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
-# Fill in real secrets, save+exit.
+# Fill in real secrets (tailscale, HF, vLLM, borg passphrase, ...), save+exit.
 
-make ping                   # SSH + become smoke test
-make site                   # full provision
+make ping                        # SSH + become smoke test as `ansible`
+make setup                       # clean-baseline snapshot + first full borg backup
+```
+
+`make setup` refuses to run on a host that's already been provisioned
+(checks for `/opt/vllm`, `/etc/nvidia-container-runtime`, `/etc/sunshine`).
+Override with `-e setup_force=true` if you really mean it.
+
+### 3. Provision
+
+```bash
+make site                        # full provision; snapshots before each run
 ```
 
 Piecemeal:
 
 ```bash
-make remote-desktop         # virtual_display + sunshine
-make ai                     # docker + vllm
+make remote-desktop              # virtual_display + sunshine
+make ai                          # docker + vllm
 make tailscale
 make monitoring
-make k3s                    # after flipping k3s_install: true
+make k3s                         # after flipping k3s_install: true
 ```
+
+## Safety nets
+
+- **`make snapshot`** — ad-hoc timeshift snapshot.
+- **`make rollback`** — restore latest snapshot (reboots).
+  `-e snapshot_target=<name>` for a specific one. `clean-baseline` is the
+  pristine state from `make setup`.
+- **`make backup`** — refresh borg config + systemd timer (no immediate run).
+- **`make backup-now`** — same plus an immediate `borg create`.
+- **`make backup-restore ARCHIVE=<name>`** — extract a borg archive to
+  `/var/restore/<name>` (does NOT install in place).
+
+See `roles/snapshot/README.md` and `roles/backup/README.md` for details.
 
 ## Configuration
 
@@ -77,6 +130,8 @@ Vault secrets (`inventory/group_vars/all/vault.yml`, gitignored):
 - `vault_hf_token` — for gated HF models
 - `vault_vllm_api_key` — long random string; gates `/v1/*`
 - `vault_k3s_token` — only if `k3s_install: true`
+- `vault_borg_passphrase` — required unless `borg_encryption: none`. **Back this up off-host. Lose it = lose the backups.**
+- `vault_borg_smb_password` — only if `borg_repo_mode: smb`
 
 ## After it's up
 
@@ -92,6 +147,9 @@ Vault secrets (`inventory/group_vars/all/vault.yml`, gitignored):
 
 | Role | Purpose |
 |---|---|
+| `bootstrap` | Create the `ansible` user with key + NOPASSWD sudo (one-time). |
+| `snapshot` | Timeshift rsync-mode snapshots for pre-`site.yml` rollback. |
+| `backup` | Daily incremental borg backup with SSH/local/NFS/SMB repo support. |
 | `nvidia_verify` | `nvidia-smi` + minimum-driver assertion. |
 | `docker` | docker-ce + compose plugin + nvidia-container-toolkit, `nvidia` default runtime, GPU smoke test. |
 | `tailscale` | apt install + `tailscale up --authkey --ssh`. |

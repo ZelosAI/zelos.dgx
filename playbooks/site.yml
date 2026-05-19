@@ -1,4 +1,5 @@
 ---
+- import_playbook: snapshot.yml
 - import_playbook: nvidia_verify.yml
 - import_playbook: base.yml
 - import_playbook: remote_desktop.yml

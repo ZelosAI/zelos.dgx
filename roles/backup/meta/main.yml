@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: kmechlin
+  description: Configure a daily borg backup with NFS/SMB/SSH/local repo support
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - backup
+    - borg
+    - nfs
+    - smb
+dependencies: []

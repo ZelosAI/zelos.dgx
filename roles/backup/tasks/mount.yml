@@ -1,0 +1,36 @@
+---
+- name: Ensure mount point exists
+  ansible.builtin.file:
+    path: "{{ borg_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Write SMB credentials file (smb mode only)
+  ansible.builtin.template:
+    src: borg-smb-credentials.j2
+    dest: "{{ borg_smb_credentials_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+  when: borg_repo_mode == 'smb'
+  no_log: true
+
+- name: Persistently mount the NFS share
+  ansible.posix.mount:
+    path: "{{ borg_mount_point }}"
+    src: "{{ borg_nfs_share }}"
+    fstype: nfs4
+    opts: "{{ borg_nfs_options }}"
+    state: mounted
+  when: borg_repo_mode == 'nfs'
+
+- name: Persistently mount the SMB share
+  ansible.posix.mount:
+    path: "{{ borg_mount_point }}"
+    src: "{{ borg_smb_share }}"
+    fstype: cifs
+    opts: "{{ borg_smb_options }},credentials={{ borg_smb_credentials_file }}"
+    state: mounted
+  when: borg_repo_mode == 'smb'

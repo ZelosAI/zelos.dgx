@@ -1,0 +1,33 @@
+---
+# Master gate. Set to false to skip the role entirely (e.g. on hosts where
+# timeshift isn't viable). When false, the role no-ops in its first task.
+snapshot_enabled: true
+
+# Free-form comment recorded with the snapshot. Override to e.g.
+# "clean-baseline" when capturing the pristine post-bootstrap state.
+snapshot_comment: "ansible-pre-site"
+
+# timeshift snapshot tag. Use "O" (on-demand / Keep forever) for baselines
+# you don't want the rolling pruner to remove. The default "D" lets daily
+# retention apply.
+snapshot_tag: "D"
+
+# Paths excluded from the rsync-mode snapshot. These are either huge
+# (model cache, container images) or stateful data better protected by
+# the borg backup role.
+snapshot_excludes:
+  - "/opt/vllm/hf-cache/**"
+  - "/var/lib/docker/**"
+  - "/var/lib/rancher/k3s/agent/containerd/**"
+
+# Retention applied by `timeshift --check` / scheduled runs (we don't
+# enable timeshift's own scheduler — we just write the config).
+snapshot_retention:
+  daily: 5
+  weekly: 2
+  monthly: 1
+  boot: 5
+
+# Which snapshot to roll back to. "latest" picks the newest snapshot;
+# alternatively pass an explicit name via -e snapshot_target=<name>.
+snapshot_target: "latest"

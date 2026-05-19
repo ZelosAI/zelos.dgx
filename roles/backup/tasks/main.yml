@@ -1,0 +1,122 @@
+---
+- name: Backup - check enabled
+  ansible.builtin.meta: end_play
+  when: not (backup_enabled | bool)
+
+- name: Assert borg_repo_mode is valid
+  ansible.builtin.assert:
+    that:
+      - borg_repo_mode in ['ssh', 'local', 'nfs', 'smb']
+    fail_msg: "borg_repo_mode must be one of: ssh, local, nfs, smb"
+
+- name: Assert encryption passphrase is present when encryption is enabled
+  ansible.builtin.assert:
+    that:
+      - vault_borg_passphrase is defined
+      - vault_borg_passphrase | length > 0
+    fail_msg: "borg_encryption is '{{ borg_encryption }}' but vault_borg_passphrase is not set."
+  when: borg_encryption != 'none'
+
+- name: Assert SMB inputs are present when borg_repo_mode == smb
+  ansible.builtin.assert:
+    that:
+      - borg_smb_share | length > 0
+      - borg_smb_username | length > 0
+      - vault_borg_smb_password is defined and vault_borg_smb_password | length > 0
+    fail_msg: "smb mode requires borg_smb_share, borg_smb_username, and vault_borg_smb_password."
+  when: borg_repo_mode == 'smb'
+
+- name: Assert NFS inputs are present when borg_repo_mode == nfs
+  ansible.builtin.assert:
+    that:
+      - borg_nfs_share | length > 0
+    fail_msg: "nfs mode requires borg_nfs_share (e.g. 'nas.tail-net.ts.net:/export/borg')."
+  when: borg_repo_mode == 'nfs'
+
+- name: Install role
+  ansible.builtin.import_tasks: install.yml
+
+- name: Mount the share for nfs / smb modes
+  ansible.builtin.import_tasks: mount.yml
+  when: borg_repo_mode in ['nfs', 'smb']
+
+- name: Compute effective repo path
+  ansible.builtin.set_fact:
+    borg_repo_effective: >-
+      {%- if borg_repo_mode in ['nfs', 'smb'] -%}
+      {{ borg_mount_point }}/{{ inventory_hostname }}
+      {%- elif borg_repo_mode == 'local' and borg_repo | length == 0 -%}
+      /var/backup/borg/{{ inventory_hostname }}
+      {%- else -%}
+      {{ borg_repo }}
+      {%- endif -%}
+
+- name: Ensure local repo parent dir exists (local mode)
+  ansible.builtin.file:
+    path: "{{ borg_repo_effective }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: borg_repo_mode == 'local'
+
+- name: Ensure repo parent dir exists on mounted share (nfs/smb)
+  ansible.builtin.file:
+    path: "{{ borg_repo_effective }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: borg_repo_mode in ['nfs', 'smb']
+
+- name: Check whether the borg repo is already initialised
+  ansible.builtin.command: borg info "{{ borg_repo_effective }}"
+  environment:
+    BORG_PASSPHRASE: "{{ vault_borg_passphrase | default('') }}"
+    BORG_RELOCATED_REPO_ACCESS_IS_OK: "yes"
+  register: borg_info_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Initialise borg repo
+  ansible.builtin.command:
+    argv:
+      - borg
+      - init
+      - "--encryption={{ borg_encryption }}"
+      - "{{ borg_repo_effective }}"
+  environment:
+    BORG_PASSPHRASE: "{{ vault_borg_passphrase | default('') }}"
+  when: borg_info_check.rc != 0
+  changed_when: true
+  no_log: true
+
+- name: Install systemd service + timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - {src: borg-backup.service.j2, dest: /etc/systemd/system/borg-backup.service}
+    - {src: borg-backup.timer.j2, dest: /etc/systemd/system/borg-backup.timer}
+  notify:
+    - Reload systemd
+    - Restart borg-backup.timer
+
+- name: Flush handlers so the timer is reloaded before we enable it
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start borg-backup.timer
+  ansible.builtin.systemd:
+    name: borg-backup.timer
+    enabled: true
+    state: started
+
+- name: Trigger an immediate backup
+  ansible.builtin.command: "{{ borg_wrapper_path }}"
+  when: borg_run_now | bool
+  changed_when: true
+  no_log: true

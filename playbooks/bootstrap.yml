@@ -1,0 +1,7 @@
+---
+- name: Bootstrap the ansible user on a fresh DGX host
+  hosts: dgx
+  become: true
+  gather_facts: false
+  roles:
+    - role: kmechlin.dgx.bootstrap

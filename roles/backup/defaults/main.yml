@@ -1,0 +1,76 @@
+---
+# Master gate.
+backup_enabled: true
+
+# --- Repo location ---
+# ssh   : borg dials SSH directly. borg_repo = "user@host:/path"
+# local : borg_repo is a local dir; we manage it.
+# nfs   : we mount borg_nfs_share at borg_mount_point, then derive repo path.
+# smb   : we mount borg_smb_share at borg_mount_point, then derive repo path.
+borg_repo_mode: ssh
+
+# Absolute repo path. For ssh/local pass the full string. For nfs/smb leave
+# empty — the role renders "<borg_mount_point>/<inventory_hostname>".
+borg_repo: ""
+
+# Mount point used by the nfs / smb modes.
+borg_mount_point: /mnt/borg-repo
+
+# NFS mode: "host:/export" plus mount options.
+borg_nfs_share: ""
+borg_nfs_options: "rw,hard,vers=4"
+
+# SMB mode: "//host/share" plus mount options. Password is rendered into a
+# 0600 credentials file from vault_borg_smb_password — never inline.
+borg_smb_share: ""
+borg_smb_username: ""
+borg_smb_options: "vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"
+
+# --- Repo crypto + compression ---
+# none | repokey | repokey-blake2 | keyfile | keyfile-blake2
+borg_encryption: repokey-blake2
+borg_compression: "auto,zstd"
+
+# --- Backup content ---
+borg_paths:
+  - /etc
+  - /opt
+  - /var/lib
+  - /home
+
+borg_excludes:
+  - "/var/lib/docker/tmp/**"
+  - "/var/lib/docker/overlay2/**"
+  - "/var/cache/**"
+  - "/var/tmp/**"
+  - "/tmp/**"
+  - "/opt/vllm/hf-cache/**/.lock"
+
+# --- Retention (passed to borg prune) ---
+borg_prune:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+
+# --- Schedule ---
+# systemd OnCalendar expression for the timer.
+borg_schedule: "daily"
+borg_schedule_random_delay: "30m"
+
+# Set true via -e to trigger an immediate borg create at the end of the play
+# (used by playbooks/setup.yml for the first full backup, and by
+# `make backup-now`).
+borg_run_now: false
+
+# --- Restore ---
+# Where backup_restore.yml extracts files to. NOT in-place — extract first,
+# inspect, then copy in by hand or boot a rescue env for full system restore.
+borg_restore_target: "/var/restore"
+borg_archive: ""
+
+# --- Where the role writes things on the target ---
+borg_config_dir: /etc/borg
+borg_passphrase_file: /etc/borg/passphrase
+borg_excludes_file: /etc/borg/excludes
+borg_smb_credentials_file: /etc/borg-smb-credentials
+borg_wrapper_path: /usr/local/sbin/borg-backup.sh

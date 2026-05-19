@@ -1,0 +1,10 @@
+---
+- name: Roll back to a timeshift snapshot
+  hosts: dgx
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Include rollback tasks
+      ansible.builtin.include_role:
+        name: kmechlin.dgx.snapshot
+        tasks_from: rollback.yml

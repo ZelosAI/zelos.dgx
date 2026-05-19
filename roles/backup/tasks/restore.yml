@@ -1,0 +1,51 @@
+---
+- name: Assert borg_archive is set
+  ansible.builtin.assert:
+    that:
+      - borg_archive | length > 0
+    fail_msg: >-
+      borg_archive must name an archive in the repo (see `borg list`).
+      Pass it via -e borg_archive=<name>.
+
+- name: Compute effective repo path (restore)
+  ansible.builtin.set_fact:
+    borg_repo_effective: >-
+      {%- if borg_repo_mode in ['nfs', 'smb'] -%}
+      {{ borg_mount_point }}/{{ inventory_hostname }}
+      {%- elif borg_repo_mode == 'local' and borg_repo | length == 0 -%}
+      /var/backup/borg/{{ inventory_hostname }}
+      {%- else -%}
+      {{ borg_repo }}
+      {%- endif -%}
+
+- name: Ensure the share is mounted (nfs/smb restore)
+  ansible.builtin.import_tasks: mount.yml
+  when: borg_repo_mode in ['nfs', 'smb']
+
+- name: Create restore target directory
+  ansible.builtin.file:
+    path: "{{ borg_restore_target }}/{{ borg_archive }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Extract archive into restore target
+  ansible.builtin.command:
+    argv:
+      - borg
+      - extract
+      - "{{ borg_repo_effective }}::{{ borg_archive }}"
+    chdir: "{{ borg_restore_target }}/{{ borg_archive }}"
+  environment:
+    BORG_PASSPHRASE: "{{ vault_borg_passphrase | default('') }}"
+  register: borg_extract
+  changed_when: true
+  no_log: true
+
+- name: Restore complete
+  ansible.builtin.debug:
+    msg: >-
+      Archive {{ borg_archive }} extracted to
+      {{ borg_restore_target }}/{{ borg_archive }}.
+      Files are NOT installed in place — inspect, then copy in by hand.

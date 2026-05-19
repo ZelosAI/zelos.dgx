@@ -1,0 +1,45 @@
+---
+- name: Install borgbackup + mode-specific mount tooling
+  ansible.builtin.apt:
+    name: "{{ ['borgbackup'] + extra }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  vars:
+    extra: >-
+      {{ ['nfs-common']  if borg_repo_mode == 'nfs' else
+         ['cifs-utils'] if borg_repo_mode == 'smb' else [] }}
+
+- name: Create /etc/borg
+  ansible.builtin.file:
+    path: "{{ borg_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Write borg passphrase file
+  ansible.builtin.copy:
+    dest: "{{ borg_passphrase_file }}"
+    content: "{{ vault_borg_passphrase }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  when: borg_encryption != 'none'
+  no_log: true
+
+- name: Write borg excludes file
+  ansible.builtin.template:
+    src: borg-excludes.j2
+    dest: "{{ borg_excludes_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install borg-backup.sh wrapper
+  ansible.builtin.template:
+    src: borg-backup.sh.j2
+    dest: "{{ borg_wrapper_path }}"
+    owner: root
+    group: root
+    mode: '0750'

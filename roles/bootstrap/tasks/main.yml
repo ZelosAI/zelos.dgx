@@ -1,0 +1,56 @@
+---
+- name: Assert bootstrap_authorized_keys_file is set
+  ansible.builtin.assert:
+    that:
+      - bootstrap_authorized_keys_file | length > 0
+    fail_msg: >-
+      bootstrap_authorized_keys_file must point to an SSH public key file
+      on the control node (e.g. ~/.ssh/id_ed25519.pub).
+
+- name: Ensure Python and sudo are present (raw fallback)
+  ansible.builtin.raw: >-
+    test -x /usr/bin/python3 && command -v sudo >/dev/null
+    || (apt-get update -y && apt-get install -y python3 sudo)
+  register: bootstrap_raw_python
+  changed_when: "'install' in bootstrap_raw_python.stdout | default('')"
+
+- name: Gather facts now that Python is available
+  ansible.builtin.setup:
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ bootstrap_base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the ansible user
+  ansible.builtin.user:
+    name: "{{ bootstrap_user }}"
+    shell: "{{ bootstrap_user_shell }}"
+    home: "{{ bootstrap_user_home }}"
+    groups: "{{ bootstrap_user_groups }}"
+    append: true
+    create_home: true
+    state: present
+
+- name: Read SSH public key from control node
+  ansible.builtin.set_fact:
+    bootstrap_pubkey_content: "{{ lookup('ansible.builtin.file', bootstrap_authorized_keys_file) }}"
+
+- name: Install authorized_keys for the ansible user
+  ansible.posix.authorized_key:
+    user: "{{ bootstrap_user }}"
+    key: "{{ bootstrap_pubkey_content }}"
+    state: present
+    exclusive: false
+
+- name: Grant NOPASSWD sudo to the ansible user
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-ansible-bootstrap
+    content: "{{ bootstrap_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  when: bootstrap_sudoers_nopasswd | bool

@@ -1,0 +1,7 @@
+---
+- name: Take a timeshift snapshot
+  hosts: dgx
+  become: true
+  gather_facts: true
+  roles:
+    - role: kmechlin.dgx.snapshot
