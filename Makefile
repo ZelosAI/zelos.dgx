@@ -88,10 +88,10 @@ backup:
 	$(ANSIBLE) -i $(INV) playbooks/backup.yml $(ASK)
 
 backup-now:
-	$(ANSIBLE) -i $(INV) playbooks/backup.yml $(ASK) -e borg_run_now=true
+	$(ANSIBLE) -i $(INV) playbooks/backup.yml $(ASK) -e backup_run_now=true
 
 backup-restore:
-	$(ANSIBLE) -i $(INV) playbooks/backup_restore.yml $(ASK) -e borg_archive=$(ARCHIVE)
+	$(ANSIBLE) -i $(INV) playbooks/backup_restore.yml $(ASK) -e backup_archive=$(ARCHIVE)
 
 nvidia:
 	$(ANSIBLE) -i $(INV) playbooks/nvidia_verify.yml $(ASK)

@@ -13,12 +13,12 @@ vault_hf_token: "hf_XXXXXXXXXXXXXXXX"
 # Long random string the vLLM container will require in `Authorization: Bearer ...`.
 vault_vllm_api_key: "sk-replace-with-a-long-random-string"
 
-# Cluster token for k3s (only used if k3s_install: true).
+# Cluster token for k3s (only used if k3s_gpu_install: true).
 vault_k3s_token: "replace-with-random-string"
 
-# Borg repository passphrase. Required unless borg_encryption == none.
+# Borg repository passphrase. Required unless backup_encryption == none.
 # *** Lose this and you lose the backups. *** Back it up off-host.
 vault_borg_passphrase: "replace-with-a-long-random-string"
 
-# SMB password for the borg repo share (only used if borg_repo_mode == smb).
+# SMB password for the borg repo share (only used if backup_repo_mode == smb).
 vault_borg_smb_password: "replace-with-the-share-password"

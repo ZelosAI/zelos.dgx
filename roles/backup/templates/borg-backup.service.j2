@@ -2,8 +2,8 @@
 Description=borgbackup daily backup (zelos.dgx)
 Wants=network-online.target
 After=network-online.target
-{% if borg_repo_mode in ['nfs', 'smb'] %}
-RequiresMountsFor={{ borg_mount_point }}
+{% if backup_repo_mode in ['nfs', 'smb'] %}
+RequiresMountsFor={{ backup_mount_point }}
 {% endif %}
 
 [Service]
@@ -11,4 +11,4 @@ Type=oneshot
 Nice=19
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-ExecStart={{ borg_wrapper_path }}
+ExecStart={{ backup_wrapper_path }}

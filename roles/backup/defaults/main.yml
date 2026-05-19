@@ -3,42 +3,42 @@
 backup_enabled: true
 
 # --- Repo location ---
-# ssh   : borg dials SSH directly. borg_repo = "user@host:/path"
-# local : borg_repo is a local dir; we manage it.
-# nfs   : we mount borg_nfs_share at borg_mount_point, then derive repo path.
-# smb   : we mount borg_smb_share at borg_mount_point, then derive repo path.
-borg_repo_mode: ssh
+# ssh   : borg dials SSH directly. backup_repo = "user@host:/path"
+# local : backup_repo is a local dir; we manage it.
+# nfs   : we mount backup_nfs_share at backup_mount_point, then derive repo path.
+# smb   : we mount backup_smb_share at backup_mount_point, then derive repo path.
+backup_repo_mode: ssh
 
 # Absolute repo path. For ssh/local pass the full string. For nfs/smb leave
-# empty — the role renders "<borg_mount_point>/<inventory_hostname>".
-borg_repo: ""
+# empty — the role renders "<backup_mount_point>/<inventory_hostname>".
+backup_repo: ""
 
 # Mount point used by the nfs / smb modes.
-borg_mount_point: /mnt/borg-repo
+backup_mount_point: /mnt/borg-repo
 
 # NFS mode: "host:/export" plus mount options.
-borg_nfs_share: ""
-borg_nfs_options: "rw,hard,vers=4"
+backup_nfs_share: ""
+backup_nfs_options: "rw,hard,vers=4"
 
 # SMB mode: "//host/share" plus mount options. Password is rendered into a
 # 0600 credentials file from vault_borg_smb_password — never inline.
-borg_smb_share: ""
-borg_smb_username: ""
-borg_smb_options: "vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"
+backup_smb_share: ""
+backup_smb_username: ""
+backup_smb_options: "vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"
 
 # --- Repo crypto + compression ---
 # none | repokey | repokey-blake2 | keyfile | keyfile-blake2
-borg_encryption: repokey-blake2
-borg_compression: "auto,zstd"
+backup_encryption: repokey-blake2
+backup_compression: "auto,zstd"
 
 # --- Backup content ---
-borg_paths:
+backup_paths:
   - /etc
   - /opt
   - /var/lib
   - /home
 
-borg_excludes:
+backup_excludes:
   - "/var/lib/docker/tmp/**"
   - "/var/lib/docker/overlay2/**"
   - "/var/cache/**"
@@ -47,30 +47,30 @@ borg_excludes:
   - "/opt/vllm/hf-cache/**/.lock"
 
 # --- Retention (passed to borg prune) ---
-borg_prune:
+backup_prune:
   keep_daily: 7
   keep_weekly: 4
   keep_monthly: 6
 
 # --- Schedule ---
 # systemd OnCalendar expression for the timer.
-borg_schedule: "daily"
-borg_schedule_random_delay: "30m"
+backup_schedule: "daily"
+backup_schedule_random_delay: "30m"
 
 # Set true via -e to trigger an immediate borg create at the end of the play
 # (used by playbooks/setup.yml for the first full backup, and by
 # `make backup-now`).
-borg_run_now: false
+backup_run_now: false
 
 # --- Restore ---
 # Where backup_restore.yml extracts files to. NOT in-place — extract first,
 # inspect, then copy in by hand or boot a rescue env for full system restore.
-borg_restore_target: "/var/restore"
-borg_archive: ""
+backup_restore_target: "/var/restore"
+backup_archive: ""
 
 # --- Where the role writes things on the target ---
-borg_config_dir: /etc/borg
-borg_passphrase_file: /etc/borg/passphrase
-borg_excludes_file: /etc/borg/excludes
-borg_smb_credentials_file: /etc/borg-smb-credentials
-borg_wrapper_path: /usr/local/sbin/borg-backup.sh
+backup_config_dir: /etc/borg
+backup_passphrase_file: /etc/borg/passphrase
+backup_excludes_file: /etc/borg/excludes
+backup_smb_credentials_file: /etc/borg-smb-credentials
+backup_wrapper_path: /usr/local/sbin/borg-backup.sh

@@ -33,7 +33,7 @@ zelos.dgx/
 │   ├── base.yml               # docker + tailscale
 │   ├── remote_desktop.yml     # virtual_display + sunshine
 │   ├── ai_serving.yml         # docker + vllm
-│   ├── k3s.yml                # opt-in, gated by k3s_install
+│   ├── k3s.yml                # opt-in, gated by k3s_gpu_install
 │   ├── monitoring.yml
 │   └── tailscale.yml
 ├── inventory/
@@ -41,7 +41,7 @@ zelos.dgx/
 │   ├── bootstrap.example.yml  # one-time bootstrap inventory (ansible_user=ubuntu)
 │   ├── vault.example.yml      # template -> copy to group_vars/all/vault.yml
 │   └── group_vars/
-│       └── all/main.yml       # all knobs (incl. snapshot_*, borg_*)
+│       └── all/main.yml       # all knobs (incl. snapshot_*, backup_*)
 ├── docs/
 │   ├── openai-client.example.py
 │   └── prometheus-scrape.example.yml
@@ -119,13 +119,13 @@ All knobs in `inventory/group_vars/all/main.yml`:
   `vllm_max_model_len`, `vllm_gpu_memory_utilization`
 - `virtual_display_width/height/refresh`
 - `sunshine_version`, `sunshine_user`
-- `k3s_install` (opt-in), `k3s_gpu_operator_install`
+- `k3s_gpu_install` (opt-in), `k3s_gpu_operator_install`
 - `monitoring_bind` (loopback by default; flip to Tailscale IP for remote scraping)
 - `tailscale_ssh`
 - `snapshot_enabled`, `snapshot_excludes`, `snapshot_retention`
-- `borg_repo_mode` (ssh|local|nfs|smb), `borg_repo`,
-  `borg_nfs_share` / `borg_smb_share`, `borg_schedule`,
-  `borg_encryption`, `borg_compression`
+- `backup_repo_mode` (ssh|local|nfs|smb), `backup_repo`,
+  `backup_nfs_share` / `backup_smb_share`, `backup_schedule`,
+  `backup_encryption`, `backup_compression`
 
 Vault secrets in `inventory/group_vars/all/vault.yml` (gitignored, encrypt
 with `ansible-vault`):
@@ -133,9 +133,9 @@ with `ansible-vault`):
 - `vault_tailscale_auth_key`
 - `vault_hf_token` (for gated HF models like Llama)
 - `vault_vllm_api_key`
-- `vault_k3s_token` (only if `k3s_install: true`)
+- `vault_k3s_token` (only if `k3s_gpu_install: true`)
 - `vault_borg_passphrase` (back this up off-host — lose it = lose the backups)
-- `vault_borg_smb_password` (only if `borg_repo_mode: smb`)
+- `vault_borg_smb_password` (only if `backup_repo_mode: smb`)
 
 ## How to run it
 
