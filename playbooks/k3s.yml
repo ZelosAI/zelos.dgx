@@ -1,8 +1,8 @@
 ---
-- name: k3s with NVIDIA runtime (opt-in via k3s_install)
+- name: K3s with NVIDIA runtime (opt-in via k3s_gpu_install)
   hosts: dgx
   become: true
   gather_facts: true
   roles:
     - role: zelos.dgx.k3s_gpu
-      when: k3s_install | default(false) | bool
+      when: k3s_gpu_install | default(false) | bool

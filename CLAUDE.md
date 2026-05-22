@@ -2,7 +2,7 @@
 
 ## Repository
 
-- **Repo:** `kmechlin/ansible-dgx-collection`
+- **Repo:** `kmechlin/zelos.dgx`
 - **Collection FQCN:** `zelos.dgx`
 - **Purpose:** Provision headless NVIDIA DGX-class workstations (Lenovo PGX,
   DGX Station, DGX Spark) running DGX OS, so the box is reachable remotely
@@ -10,21 +10,20 @@
   All access is over Tailscale.
 - **State:** v0.1.0 scaffold. **Not yet validated against real hardware.**
 
-## Active Branch
-
-- Work on: `claude/ansible-remote-ai-setup-aLg4U`
-
 ## Layout
 
 ```
-ansible-dgx-collection/
+zelos.dgx/
 ├── ansible.cfg
 ├── galaxy.yml                 # namespace=zelos, name=dgx, version=0.2.0
-├── Makefile                   # make bootstrap / setup / site / snapshot / rollback / backup / ...
+├── pyproject.toml             # zdgx CLI package (host-installable + container ENTRYPOINT)
+├── Dockerfile                 # python:3.12-slim + ansible + the zdgx CLI baked in
+├── Makefile                   # make build / run-shell / dev-shell (container only)
+├── cli/zdgx/                  # Typer CLI source (app.py, runner.py)
 ├── meta/runtime.yml           # requires_ansible >=2.15
 ├── requirements.yml           # community.general, ansible.posix, community.docker
 ├── .yamllint.yml
-├── .github/workflows/lint.yml # yamllint + ansible-lint + syntax-check
+├── .github/workflows/         # lint.yml + release-tag.yml
 ├── playbooks/
 │   ├── site.yml               # imports snapshot.yml + the rest
 │   ├── bootstrap.yml          # create the `ansible` user (run once, --ask-pass)
@@ -37,7 +36,7 @@ ansible-dgx-collection/
 │   ├── base.yml               # docker + tailscale
 │   ├── remote_desktop.yml     # virtual_display + sunshine
 │   ├── ai_serving.yml         # docker + vllm
-│   ├── k3s.yml                # opt-in, gated by k3s_install
+│   ├── k3s.yml                # opt-in, gated by k3s_gpu_install
 │   ├── monitoring.yml
 │   └── tailscale.yml
 ├── inventory/
@@ -45,7 +44,7 @@ ansible-dgx-collection/
 │   ├── bootstrap.example.yml  # one-time bootstrap inventory (ansible_user=ubuntu)
 │   ├── vault.example.yml      # template -> copy to group_vars/all/vault.yml
 │   └── group_vars/
-│       └── all/main.yml       # all knobs (incl. snapshot_*, borg_*)
+│       └── all/main.yml       # all knobs (incl. snapshot_*, backup_*)
 ├── docs/
 │   ├── openai-client.example.py
 │   └── prometheus-scrape.example.yml
@@ -75,17 +74,26 @@ ansible-dgx-collection/
 
 ## Operator flow
 
+All operator actions go through the `zdgx` CLI (a Typer app installed
+into the container as ENTRYPOINT, also installable on the host via
+`pip install -e .`). The Makefile is now just for the container image:
+`make build`, `make run-shell`, `make dev-shell`.
+
 ```
-make bootstrap   # one-time, interactive (admin user + password)
-make setup       # one-time: full borg backup + clean-baseline snapshot
-make site        # repeatable; pre-flight snapshot taken each run
+zdgx bootstrap   # one-time, interactive (admin user + password)
+zdgx setup       # one-time: full borg backup + clean-baseline snapshot
+zdgx site        # repeatable; pre-flight snapshot taken each run
 ```
+
+`zdgx --help` lists every subcommand. Common global options:
+`-i/--inventory`, `--vault-password-file`, `--limit`, `--check`, `-v`,
+`-e/--extra-vars`.
 
 Recovery hierarchy:
 
-- bad `make site` run → `make rollback` (latest pre-flight snapshot)
-- cumulative drift → `make rollback ASK='-e snapshot_target=clean-baseline'`
-- disk loss → reinstall OS, `make bootstrap`, restore from borg
+- bad `zdgx site` run → `zdgx rollback` (latest pre-flight snapshot)
+- cumulative drift → `zdgx rollback --target clean-baseline`
+- disk loss → reinstall OS, `zdgx bootstrap`, restore with `zdgx backup-restore --archive <name>`
 
 The two safety nets are deliberately separate. **timeshift** is local
 snapshot for in-place rollback; **borg** is off-host
@@ -123,13 +131,13 @@ All knobs in `inventory/group_vars/all/main.yml`:
   `vllm_max_model_len`, `vllm_gpu_memory_utilization`
 - `virtual_display_width/height/refresh`
 - `sunshine_version`, `sunshine_user`
-- `k3s_install` (opt-in), `k3s_gpu_operator_install`
+- `k3s_gpu_install` (opt-in), `k3s_gpu_operator_install`
 - `monitoring_bind` (loopback by default; flip to Tailscale IP for remote scraping)
 - `tailscale_ssh`
 - `snapshot_enabled`, `snapshot_excludes`, `snapshot_retention`
-- `borg_repo_mode` (ssh|local|nfs|smb), `borg_repo`,
-  `borg_nfs_share` / `borg_smb_share`, `borg_schedule`,
-  `borg_encryption`, `borg_compression`
+- `backup_repo_mode` (ssh|local|nfs|smb), `backup_repo`,
+  `backup_nfs_share` / `backup_smb_share`, `backup_schedule`,
+  `backup_encryption`, `backup_compression`
 
 Vault secrets in `inventory/group_vars/all/vault.yml` (gitignored, encrypt
 with `ansible-vault`):
@@ -137,50 +145,234 @@ with `ansible-vault`):
 - `vault_tailscale_auth_key`
 - `vault_hf_token` (for gated HF models like Llama)
 - `vault_vllm_api_key`
-- `vault_k3s_token` (only if `k3s_install: true`)
+- `vault_k3s_token` (only if `k3s_gpu_install: true`)
 - `vault_borg_passphrase` (back this up off-host — lose it = lose the backups)
-- `vault_borg_smb_password` (only if `borg_repo_mode: smb`)
+- `vault_borg_smb_password` (only if `backup_repo_mode: smb`)
 
 ## How to run it
 
-```bash
-git clone https://github.com/kmechlin/ansible-dgx-collection.git
-cd ansible-dgx-collection
-python3 -m venv venv && source venv/bin/activate
-pip install ansible ansible-lint yamllint
-make deps                              # installs community.general/posix/docker
+There are three equivalent workflows: host-installed CLI, prod-like
+container shell (`run-shell`), and live-edit container shell
+(`dev-shell`). The container is the recommended path because it pins
+Ansible + dependencies; the host install is convenient for ad-hoc work.
 
-# --- One-time bootstrap (interactive) ---
+### Setup (one-time)
+
+```bash
+git clone https://github.com/kmechlin/zelos.dgx.git
+cd zelos.dgx
+
+# Inventory + vault (always required, however you run zdgx)
 cp inventory/bootstrap.example.yml inventory/bootstrap.yml
 vim inventory/bootstrap.yml            # admin user, host, key path
-make bootstrap                         # prompts for admin SSH + sudo password
-
-# --- Vault + baseline (one-time) ---
 vim inventory/hosts.yml                # confirm ansible_host
 cp inventory/vault.example.yml inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
-make ping                              # SSH + become smoke test as `ansible`
-make setup                             # baseline snapshot + first full borg backup
+```
 
-# --- Provision (repeatable) ---
-make site                              # snapshots pre-flight, then full provision
+### Workflow A: host-installed CLI
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -e .                       # installs the zdgx CLI
+pip install ansible ansible-lint yamllint
+zdgx deps                              # community.general / posix / docker
+
+zdgx bootstrap                         # prompts for admin SSH + sudo password
+zdgx ping                              # smoke test as `ansible`
+zdgx setup                             # baseline snapshot + first full borg backup
+zdgx site                              # repeatable full provision
+```
+
+### Workflow B: container, prod-like (`make run-shell`)
+
+```bash
+make build
+make run-shell                         # bash inside the container, RO inventory + vault
+# inside the container:
+zdgx site
+```
+
+`make run-shell` mounts your inventory + vault read-only at the
+container paths Ansible expects. Override `INVENTORY_FILE` /
+`SECRETS_FILE` / `SSH_DIR` on the make line to point elsewhere.
+
+### Workflow C: container, live edits (`make dev-shell`)
+
+```bash
+make build                             # only when image deps change
+make dev-shell
+# inside the container:
+zdgx --help                            # reflects any change you make on the host
+zdgx setup --check                     # dry run
+```
+
+`dev-shell` bind-mounts the current repo over `/workspace` *and* over
+the collection install path (`/usr/share/ansible/collections/...`), so
+role/playbook/CLI edits on the host take effect immediately without a
+rebuild.
+
+### One-shot (no shell)
+
+The container's ENTRYPOINT is `zdgx`:
+
+```bash
+docker run --rm \
+  -v $PWD/inventory/hosts.yml:/workspace/inventory/hosts.yml:ro \
+  -v $PWD/inventory/group_vars/all/vault.yml:/workspace/inventory/group_vars/all/vault.yml:ro \
+  -v $HOME/.ssh:/home/ansible/.ssh:ro \
+  zelos-dgx-ansible:latest setup --check
 ```
 
 ## Git / Workflow
 
-- Develop on the session branch printed in the harness system prompt
-  (the one starting with `claude/ansible-remote-ai-setup-`).
-- Commit with clear, descriptive messages.
-- Push with `git push -u origin <session-branch>`.
-- Do **not** create a PR unless explicitly asked.
-- **Branching policy:** `main` is the protected release line. Feature
-  branches (the `claude/*` session branches and any other topic
-  branches) MUST be PR'd into `develop` first. Promotion from
-  `develop` to `main` is a separate PR cut from `develop` once a
-  set of features has been integrated and validated. Never open a
-  PR from a feature branch directly against `main`. If `develop`
-  does not yet exist on the remote, create it from `main` before
-  opening the first feature PR.
+### Branch model
+
+- `main` is the protected release line. Every merge to `main` is a
+  release and gets tagged `v<major>.<minor>.<patch>` automatically
+  by `.github/workflows/release-tag.yml`, which reads the version
+  from `galaxy.yml`. The version field in `galaxy.yml` is the
+  source of truth — never tag manually.
+- `develop` is the integration line. Features land here continuously.
+- Feature branches are named `feature/<plan-name>` and are cut from
+  the live tip of `origin/develop`. `<plan-name>` is the plan-file
+  slug under `/home/kmechlin/.claude/plans/<slug>.md` when a plan
+  exists, otherwise a kebab-case slug derived from the task. Never
+  reuse a feature branch from a previous plan.
+
+### Starting a plan
+
+```
+git fetch origin
+git checkout -b feature/<plan-name> origin/develop
+```
+
+Never start work directly on `develop` or `main`.
+
+### Completing a plan (feature → develop)
+
+1. Commit with clear, descriptive messages.
+2. Push: `git push -u origin feature/<plan-name>`.
+3. Open a PR into `develop` with a meaningful title and a
+   Summary + Test plan body. Do this without waiting to be asked —
+   the PR is part of "plan complete."
+4. Enable auto-merge with squash:
+   `gh pr merge --auto --squash --delete-branch`.
+   This waits for the required `lint` check (yamllint +
+   ansible-lint + syntax-check) to pass green, then squash-merges
+   and deletes the remote branch. The user does **not** need to
+   review feature → develop PRs.
+5. If CI fails, fix the issue on the same branch and let auto-merge
+   retry. Do not force-merge.
+
+### Cutting a release (develop → main)
+
+Only when the user explicitly asks ("cut a release", "ship develop",
+etc.). Never proactive.
+
+1. Inspect what's landed: `git log v<last-tag>..origin/develop`
+   (or `main..develop` if no tags yet).
+2. Propose a semver bump from `galaxy.yml`'s current `version:`:
+   - **patch** — bug fixes, doc updates, internal cleanup
+   - **minor** — new roles, new playbooks, new configuration knobs
+   - **major** — breaking changes to inventory variables, role
+     interfaces, or operator-facing commands
+3. Branch `release/v<X.Y.Z>` from `origin/develop`, bump
+   `galaxy.yml`'s `version:`, PR into `develop`, and auto-merge it
+   (same as any feature). This keeps develop and main in sync on
+   versioning.
+4. Then PR `develop` → `main`. Title: `Release v<X.Y.Z>`. Body:
+   summary of changes since the last release. **Never auto-merge.**
+   The user reviews and merges.
+5. Use a *merge commit* (not squash) for develop → main so the
+   release boundary is a single visible merge on main.
+6. The `release-tag` workflow runs on the resulting push to `main`,
+   creates the `v<X.Y.Z>` tag, and publishes a GitHub Release with
+   auto-generated notes.
+
+### Hard rules
+
+- Never PR a feature branch directly into `main`.
+- Never push directly to `develop` or `main`.
+- Never auto-merge anything into `main`.
+- If `develop` does not exist on the remote, create it from `main`
+  before opening the first feature PR.
+
+### Container builds
+
+`.github/workflows/release.yml` builds and pushes multi-arch images
+(`linux/amd64` + `linux/arm64`) to `ghcr.io/zelosai/zelos.dgx` on every
+push to `develop`, every push to `main`, and every `v*` tag push. The
+version is read from **`galaxy.yml`** (the Ansible collection's version
+field is authoritative — the `pyproject.toml` for the `zdgx` CLI is a
+secondary, container-internal concern). Tags applied:
+
+- **develop push** → `:v<X.Y.Z>-dev` · `:latest` · `:sha-<short>`
+- **main push** → `:v<X.Y.Z>` · `:latest` · `:stable` · `:sha-<short>`
+- **`v<X.Y.Z>` git tag push** → same as main push, plus validates that
+  the tag name matches `galaxy.yml`'s version (build fails if they diverge).
+
+`:latest` follows the most recent build of any kind; `:stable` tracks
+`main` only.
+
+The existing `.github/workflows/release-tag.yml` (auto-tagger that creates
+a `v<X.Y.Z>` git tag from `galaxy.yml`'s version on each `main` merge)
+remains in place — it produces the tag that `release.yml` then responds
+to. The two workflows are complementary.
+
+## Issue tracking & releases
+
+All features, bugs, and chores in the Zelos suite are tracked in the org-level
+GitHub Project [**Zelos Platform Tracker**](https://github.com/orgs/ZelosAI/projects/2).
+Every issue opened in any ZelosAI repo auto-adds to the project via
+`.github/workflows/add-to-project.yml` (uses the `ADD_TO_PROJECT_PAT` org secret).
+
+**File issues in the repo they belong to**, not in `zelosai`, unless the work
+genuinely spans multiple repos.
+
+**Project fields to set on each item:**
+
+- **Work type** — `Feature` / `Bug` / `Chore`.
+- **Priority** — `P0` (drop everything) / `P1` (this sprint) / `P2` (this
+  release) / `P3` (someday).
+- **Status** — `Todo` / `In Progress` / `Blocked` / `Done`. Move as work
+  progresses; use `Blocked` when you can't make forward progress and note the
+  blocker in the issue.
+- **Release** — cross-repo target: `v0.1`, `v0.2`, `v0.3`, `v1.0`, or
+  `Backlog`.
+- **Milestone** — matching repo-level milestone (same names exist in every
+  repo). Keep Milestone and Release in sync so repo-native views match the
+  project.
+
+**When to file vs just fix:** if it's a self-contained change you're about to
+ship this session, the PR is the record — no issue needed. File an issue for
+work that won't ship this session, anything cross-repo, anything the user
+asks to track, or follow-ups you discover but won't do now.
+
+**Linking PRs:** PRs that resolve an issue must include `Closes #N` (or
+`Fixes #N`) in the description so GitHub auto-closes the issue on merge and
+the project's "Item closed" workflow moves it to `Done`.
+
+## Relation to the Zelos suite
+
+`zelos.dgx` is the first of N planned `zelos.<hosttype>` Ansible collections
+that bring bare-metal hosts into the [Zelos suite](https://github.com/ZelosAI/zelosai).
+Each collection has two responsibilities: (1) **provision the host** (drivers,
+container runtime, Tailscale, inference runtime, optional k3s, observability,
+safety nets), and (2) **deliver a [`zelosclient`](https://github.com/ZelosAI/zelosclient)
+container onto the host** wired to the local inference runtime and to the
+suite's [`zelosbackplane`](https://github.com/ZelosAI/zelosbackplane) endpoint.
+That container is **not a Kubernetes workload** — it runs as a plain
+docker-compose or systemd unit, regardless of whether `k3s_install: true` is set.
+
+Architecture context:
+- [zelosai/docs/architecture/03-provisioning.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/03-provisioning.md) — the provisioning story.
+- [zelosai/docs/architecture/04-components/zelos.dgx.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/04-components/zelos.dgx.md) — this collection's role in the suite.
+- [zelosai/docs/architecture/00-overview.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/00-overview.md) — suite overview.
+
+The collection currently lives at `kmechlin/ansible-dgx-collection`; migration
+to `ZelosAI/zelos.dgx` is on the roadmap but out of scope for the first-pass
+bootstrap.
 
 ## Good next-iteration prompts
 
@@ -200,6 +392,6 @@ make site                              # snapshots pre-flight, then full provisi
 
 - `claude.ai/code/session_…` URLs are NOT fetchable from this environment.
   Paste task specs as text.
-- Repo MCP scope is restricted to `kmechlin/ansible-dgx-collection`.
+- Repo MCP scope is restricted to `kmechlin/zelos.dgx`.
 - This collection is at `0.1.0`. Bump in `galaxy.yml` on each material
   change; tag releases as `v0.1.0`, `v0.2.0`, etc.

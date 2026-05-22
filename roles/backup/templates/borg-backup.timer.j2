@@ -2,8 +2,8 @@
 Description=borgbackup daily backup timer (zelos.dgx)
 
 [Timer]
-OnCalendar={{ borg_schedule }}
-RandomizedDelaySec={{ borg_schedule_random_delay }}
+OnCalendar={{ backup_schedule }}
+RandomizedDelaySec={{ backup_schedule_random_delay }}
 Persistent=true
 Unit=borg-backup.service
 

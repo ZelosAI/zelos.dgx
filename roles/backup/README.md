@@ -14,17 +14,17 @@ Complements the `snapshot` role:
 
 ## Repo modes
 
-| `borg_repo_mode` | What you set | What the role does |
+| `backup_repo_mode` | What you set | What the role does |
 |---|---|---|
-| `ssh` | `borg_repo: user@host:/path/<hostname>` | borg dials SSH directly. No mount step. |
-| `local` | `borg_repo:` empty → `/var/backup/borg/<hostname>` (or your override) | Local disk. Useful for testing only — defeats the off-host goal. |
-| `nfs` | `borg_nfs_share: nas:/export/borg`, `borg_mount_point: /mnt/borg-repo` | Mounts the NFS share via `ansible.posix.mount` (persists across reboot), then uses `<mount>/<hostname>` as the repo. |
-| `smb` | `borg_smb_share: //nas/borg`, `borg_smb_username`, `vault_borg_smb_password` | Writes `/etc/borg-smb-credentials` (0600), mounts via `cifs-utils` with `credentials=...` (never inline). |
+| `ssh` | `backup_repo: user@host:/path/<hostname>` | borg dials SSH directly. No mount step. |
+| `local` | `backup_repo:` empty → `/var/backup/borg/<hostname>` (or your override) | Local disk. Useful for testing only — defeats the off-host goal. |
+| `nfs` | `backup_nfs_share: nas:/export/borg`, `backup_mount_point: /mnt/borg-repo` | Mounts the NFS share via `ansible.posix.mount` (persists across reboot), then uses `<mount>/<hostname>` as the repo. |
+| `smb` | `backup_smb_share: //nas/borg`, `backup_smb_username`, `vault_borg_smb_password` | Writes `/etc/borg-smb-credentials` (0600), mounts via `cifs-utils` with `credentials=...` (never inline). |
 
 ## Encryption
 
 Default: `repokey-blake2`. The passphrase comes from
-`vault_borg_passphrase` (required unless `borg_encryption: none`). The
+`vault_borg_passphrase` (required unless `backup_encryption: none`). The
 role writes `/etc/borg/passphrase` (0600 root) and the wrapper reads it
 at runtime — `BORG_PASSPHRASE` is set inside the script, never in unit
 files or `ps` output.
@@ -54,7 +54,7 @@ Default excludes:
 
 systemd timer `borg-backup.timer`, default `OnCalendar=daily`,
 `RandomizedDelaySec=30m`, `Persistent=true` (missed runs catch up).
-Bump `borg_schedule` for a different cadence.
+Bump `backup_schedule` for a different cadence.
 
 ## Restore
 
@@ -63,13 +63,13 @@ borg list <repo>                             # see archives
 make backup-restore ARCHIVE=<archive-name>   # extracts to /var/restore/<archive>
 ```
 
-Files land in `borg_restore_target/<archive>` — inspect, then copy into
+Files land in `backup_restore_target/<archive>` — inspect, then copy into
 place by hand. For a full-system restore boot a rescue environment and
 extract the whole tree.
 
 ## First run
 
-`borg_run_now` defaults to **false** so the first (and largest) borg
+`backup_run_now` defaults to **false** so the first (and largest) borg
 create doesn't accidentally happen mid-`make site`. Two ways to kick
 the first run:
 

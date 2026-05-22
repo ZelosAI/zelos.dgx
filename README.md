@@ -14,6 +14,36 @@ sets up Docker + nvidia-container-toolkit, optional single-node k3s with the
 NVIDIA runtime + device plugin, and Prometheus monitoring (node_exporter +
 DCGM exporter).
 
+## What gets installed
+
+```mermaid
+flowchart TB
+  subgraph collection["zelos.dgx (Ansible collection)"]
+    direction TB
+    bs["bootstrap role<br/><i>ansible user + sudo</i>"]
+    docker["docker role<br/><i>+ nvidia-container-toolkit<br/>(NVIDIA = default runtime)</i>"]
+    ts["tailscale role<br/><i>tailnet join (no port-forward)</i>"]
+    vllm["vllm role<br/><i>compose + :8000 OpenAI API</i>"]
+    k3s["k3s_gpu role <i>(opt-in)</i><br/><i>+ NVIDIA device plugin</i>"]
+    mon["monitoring role<br/><i>node_exporter + DCGM</i>"]
+    sun["sunshine role<br/><i>headless remote desktop<br/>(virtual X display)</i>"]
+    snap["snapshot + backup roles<br/><i>Timeshift (local) + borg (off-host)</i>"]
+  end
+
+  ops["operator"] -- "make bootstrap → setup → site" --> collection
+  collection --> host["<b>provisioned DGX host</b><br/>ready to serve LLM traffic"]
+  host -. "(future / extended)" .-> client["zelosclient<br/><i>container delivery</i>"]
+  client -. "subscribes" .-> bp[["zelosbackplane"]]
+```
+
+The collection's role in the broader [Zelos suite](https://github.com/ZelosAI/zelosai)
+is to take a freshly-OS'd host all the way to "ready to participate" — both
+provisioning the host *and* delivering a
+[`zelosclient`](https://github.com/ZelosAI/zelosclient) container that wires the
+host into the suite's [zelosbackplane](https://github.com/ZelosAI/zelosbackplane).
+See [zelosai/docs/architecture/03-provisioning.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/03-provisioning.md)
+for the full story.
+
 ## Requirements
 
 - Target: DGX OS (Ubuntu 22.04 jammy or 24.04 noble base), NVIDIA driver
@@ -23,31 +53,74 @@ DCGM exporter).
 
 ## Operator flow
 
+All operator actions go through the `zdgx` CLI (Typer-based, installed
+into the container as ENTRYPOINT and `pip install -e .`-able on the
+host). The Makefile is now docker-only: `make build`, `make run-shell`,
+`make dev-shell`.
+
 ```
-make bootstrap   # one-time, interactive (admin user + password)
-make setup       # one-time: clean-baseline timeshift snapshot + full borg backup
-make site        # repeatable; pre-flight snapshot taken before each run
+zdgx bootstrap   # one-time, interactive (admin user + password)
+zdgx setup       # one-time: clean-baseline timeshift snapshot + full borg backup
+zdgx site        # repeatable; pre-flight snapshot taken before each run
 ```
 
-After `make setup`, a daily borg backup is already running via systemd
+After `zdgx setup`, a daily borg backup is already running via systemd
 timer. Recovery hierarchy:
 
 | Failure | Recovery |
 |---|---|
-| `make site` broke something | `make rollback` (latest pre-flight snapshot) |
-| Cumulative drift over many runs | `make rollback ASK='-e snapshot_target=clean-baseline'` then re-run `make site` |
-| Disk loss / system wipe | Reinstall OS, `make bootstrap`, then restore latest borg archive |
+| `zdgx site` broke something | `zdgx rollback` (latest pre-flight snapshot) |
+| Cumulative drift over many runs | `zdgx rollback --target clean-baseline` then re-run `zdgx site` |
+| Disk loss / system wipe | Reinstall OS, `zdgx bootstrap`, then `zdgx backup-restore --archive <name>` |
 
 ## Quickstart
 
+You can drive `zdgx` three ways. Pick one:
+
+### A. Host install (simplest, requires Python 3.10+)
+
 ```bash
-git clone https://github.com/kmechlin/ansible-dgx-collection.git
-cd ansible-dgx-collection
+git clone https://github.com/kmechlin/zelos.dgx.git
+cd zelos.dgx
 
 python3 -m venv venv && source venv/bin/activate
+pip install -e .                 # installs the zdgx CLI
 pip install ansible ansible-lint yamllint
+zdgx deps                        # ansible-galaxy collection install
+```
 
-make deps                   # ansible-galaxy collection install
+### B. Container, prod-like (`make run-shell`)
+
+```bash
+make build                       # one-time (or whenever Dockerfile changes)
+make run-shell                   # bash inside the container; zdgx is on PATH
+```
+
+`run-shell` mounts your inventory + vault read-only at the paths
+ansible expects. Override `INVENTORY_FILE` / `SECRETS_FILE` /
+`SSH_DIR` on the make line to point elsewhere.
+
+### C. Container, live edits (`make dev-shell`)
+
+```bash
+make build
+make dev-shell
+```
+
+`dev-shell` bind-mounts the current repo over `/workspace` *and* the
+collection install path so role/playbook/CLI edits show up immediately
+inside the container.
+
+### One-shot (no shell)
+
+The container's ENTRYPOINT is `zdgx`:
+
+```bash
+docker run --rm \
+  -v $PWD/inventory/hosts.yml:/workspace/inventory/hosts.yml:ro \
+  -v $PWD/inventory/group_vars/all/vault.yml:/workspace/inventory/group_vars/all/vault.yml:ro \
+  -v $HOME/.ssh:/home/ansible/.ssh:ro \
+  zelos-dgx-ansible:latest site --check
 ```
 
 ### 1. Bootstrap (one-time, interactive)
@@ -55,7 +128,7 @@ make deps                   # ansible-galaxy collection install
 ```bash
 cp inventory/bootstrap.example.yml inventory/bootstrap.yml
 vim inventory/bootstrap.yml      # set ansible_host, ansible_user (DGX admin), key path
-make bootstrap                   # prompts for SSH + sudo password of the admin user
+zdgx bootstrap                   # prompts for SSH + sudo password of the admin user
 ```
 
 This creates the `ansible` user on the target with your control-node SSH
@@ -70,39 +143,39 @@ cp inventory/vault.example.yml inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 # Fill in real secrets (tailscale, HF, vLLM, borg passphrase, ...), save+exit.
 
-make ping                        # SSH + become smoke test as `ansible`
-make setup                       # clean-baseline snapshot + first full borg backup
+zdgx ping                        # SSH + become smoke test as `ansible`
+zdgx setup                       # clean-baseline snapshot + first full borg backup
 ```
 
-`make setup` refuses to run on a host that's already been provisioned
+`zdgx setup` refuses to run on a host that's already been provisioned
 (checks for `/opt/vllm`, `/etc/nvidia-container-runtime`, `/etc/sunshine`).
 Override with `-e setup_force=true` if you really mean it.
 
 ### 3. Provision
 
 ```bash
-make site                        # full provision; snapshots before each run
+zdgx site                        # full provision; snapshots before each run
 ```
 
 Piecemeal:
 
 ```bash
-make remote-desktop              # virtual_display + sunshine
-make ai                          # docker + vllm
-make tailscale
-make monitoring
-make k3s                         # after flipping k3s_install: true
+zdgx remote-desktop              # virtual_display + sunshine
+zdgx ai                          # docker + vllm
+zdgx tailscale
+zdgx monitoring
+zdgx k3s                         # after flipping k3s_gpu_install: true
 ```
 
 ## Safety nets
 
-- **`make snapshot`** — ad-hoc timeshift snapshot.
-- **`make rollback`** — restore latest snapshot (reboots).
-  `-e snapshot_target=<name>` for a specific one. `clean-baseline` is the
-  pristine state from `make setup`.
-- **`make backup`** — refresh borg config + systemd timer (no immediate run).
-- **`make backup-now`** — same plus an immediate `borg create`.
-- **`make backup-restore ARCHIVE=<name>`** — extract a borg archive to
+- **`zdgx snapshot`** — ad-hoc timeshift snapshot.
+- **`zdgx rollback`** — restore latest snapshot (reboots).
+  `--target <name>` for a specific one. `clean-baseline` is the
+  pristine state from `zdgx setup`.
+- **`zdgx backup`** — refresh borg config + systemd timer (no immediate run).
+- **`zdgx backup --now`** — same plus an immediate `borg create`.
+- **`zdgx backup-restore --archive <name>`** — extract a borg archive to
   `/var/restore/<name>` (does NOT install in place).
 
 See `roles/snapshot/README.md` and `roles/backup/README.md` for details.
@@ -120,7 +193,7 @@ All knobs live in `inventory/group_vars/all/main.yml`. The most likely tweaks:
 | `vllm_gpu_memory_utilization` | `0.90` | Lower if you want headroom. |
 | `virtual_display_width/height/refresh` | `3840/2160/60` | Match what your Moonlight client can decode. |
 | `sunshine_version` | `0.23.1` | Pinned; bump deliberately from upstream releases. |
-| `k3s_install` | `false` | Opt-in. Set `k3s_gpu_operator_install: true` for device plugin. |
+| `k3s_gpu_install` | `false` | Opt-in. Set `k3s_gpu_operator_install: true` for device plugin. |
 | `monitoring_bind` | `127.0.0.1` | Flip to the Tailscale IP if scraping remotely. |
 | `tailscale_ssh` | `true` | When confirmed working, disable port-22 exposure. |
 
@@ -129,9 +202,9 @@ Vault secrets (`inventory/group_vars/all/vault.yml`, gitignored):
 - `vault_tailscale_auth_key` — https://login.tailscale.com/admin/settings/keys
 - `vault_hf_token` — for gated HF models
 - `vault_vllm_api_key` — long random string; gates `/v1/*`
-- `vault_k3s_token` — only if `k3s_install: true`
-- `vault_borg_passphrase` — required unless `borg_encryption: none`. **Back this up off-host. Lose it = lose the backups.**
-- `vault_borg_smb_password` — only if `borg_repo_mode: smb`
+- `vault_k3s_token` — only if `k3s_gpu_install: true`
+- `vault_borg_passphrase` — required unless `backup_encryption: none`. **Back this up off-host. Lose it = lose the backups.**
+- `vault_borg_smb_password` — only if `backup_repo_mode: smb`
 
 ## After it's up
 
@@ -162,7 +235,7 @@ Vault secrets (`inventory/group_vars/all/vault.yml`, gitignored):
 ## Status
 
 Fresh scaffold — **not yet validated against real hardware.** Expect to
-iterate on the first `make site` run. Known caveats:
+iterate on the first `zdgx site` run. Known caveats:
 
 - Sunshine first-boot may need an interactive login as `sunshine_user`
   before the user systemd service starts cleanly.

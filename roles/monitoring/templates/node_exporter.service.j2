@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 User=node_exporter
 Group=node_exporter
-ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ monitoring_bind }}:{{ node_exporter_port }}
+ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ monitoring_bind }}:{{ monitoring_node_exporter_port }}
 Restart=on-failure
 RestartSec=5
 
