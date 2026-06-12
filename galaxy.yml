@@ -30,7 +30,8 @@ repository: https://github.com/kmechlin/zelos.dgx
 issues: https://github.com/kmechlin/zelos.dgx/issues
 build_ignore:
   - .github
-  - .yamllint.yml
+  - .yamllint
+  - .ansible-lint
   - .gitignore
   - venv
   - .venv

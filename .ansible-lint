@@ -1,0 +1,11 @@
+---
+profile: production
+exclude_paths:
+  - .github/
+  - docs/
+  - secrets/
+  - inventory/
+  - .ansible/
+skip_list: []   # keep empty — violations carry inline '# noqa: <rule>' with a justification
+warn_list:
+  - experimental

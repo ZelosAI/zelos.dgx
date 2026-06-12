@@ -532,6 +532,26 @@ Architecture context:
   references in templates."
 - "Add a `restic` role as an alternative `backup_backend` to borg."
 
+## Ansible conventions
+
+This repo is a `zelos.*` Ansible collection and follows the canonical conventions —
+**read these before changing roles, playbooks, or variables**:
+
+- [15-ansible-collection-conventions.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/15-ansible-collection-conventions.md)
+  — role anatomy, verb dispatchers, the one-dict variable rule, inventory-driven configuration,
+  templating + module discipline, plugins, playbook taxonomy, the container/CLI contract.
+- [18-organization-model.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/18-organization-model.md)
+  — the `<tenancy>.<environment>.<product>.<domain>` identity tuple, reserved variable names,
+  the rename registry, per-environment secrets keys.
+- [16-dns-and-hostname-standard.md](https://github.com/ZelosAI/zelosai/blob/main/docs/architecture/16-dns-and-hostname-standard.md)
+  — hostname/TLS/OIDC form those variables produce.
+- This repo's [CONTRIBUTING-ansible.md](./CONTRIBUTING-ansible.md) — the local digest +
+  pre-push checks (`yamllint`, `ansible-lint`, `ansible-galaxy collection build`).
+
+Lint is config-as-code: `.ansible-lint` (production profile) and `.yamllint` in this repo are
+authoritative; fix violations or carry inline `# noqa <rule>` with a justification — never grow
+`skip_list` silently.
+
 ## Notes / Blockers
 
 - `claude.ai/code/session_…` URLs are NOT fetchable from this
